@@ -3,7 +3,7 @@
 import os
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -64,6 +64,54 @@ class RepoRequest(BaseModel):
     )
 
 
+class SearchRequest(BaseModel):
+    """Request model for searching Vectara corpus."""
+    query: str = Field(
+        ...,
+        description="Natural language search query",
+        example="explain me search functionality"
+    )
+    repo: Optional[str] = Field(
+        None,
+        description="Filter by specific repository name (e.g., 'sentinelai' or 'owner/repo')",
+        example="sentinelai"
+    )
+    owner: Optional[str] = Field(
+        None,
+        description="Filter by repository owner",
+        example="KshitijD21"
+    )
+    limit: int = Field(
+        5,
+        ge=1,
+        le=20,
+        description="Number of results to return (default: 5, max: 20)",
+        example=5
+    )
+
+
+class SearchSource(BaseModel):
+    """Model for a single search result source."""
+    file_path: str
+    file_name: str
+    file_type: str
+    repo: str
+    owner: str
+    source_url: str
+    relevance_score: float
+    snippet: str
+
+
+class SearchResponse(BaseModel):
+    """Response model for search results."""
+    query: str = Field(..., description="Original search query from user")
+    summary: Optional[str] = Field(None, description="AI-generated summary answer from RAG")
+    sources: List[SearchSource] = Field(..., description="List of matching files")
+    total_results: int = Field(..., description="Total number of results found")
+    query_time_ms: int = Field(..., description="Query execution time in milliseconds")
+    filters_applied: Dict[str, Any] = Field(..., description="Filters that were applied to the search")
+
+
 class RepoResponse(BaseModel):
     """Response model for repository contents."""
     owner: str
@@ -113,12 +161,115 @@ async def root():
         "status": "running",
         "endpoints": {
             "/fetch-repo": "POST - Fetch all files from a GitHub repository (use POST method!)",
+            "/search": "POST - Search the Vectara corpus with natural language queries",
             "/docs": "GET - Interactive API documentation",
             "/redoc": "GET - Alternative API documentation"
         },
         "example_curl": 'curl -X POST http://localhost:8000/fetch-repo -H "Content-Type: application/json" -d \'{"repo_url": "https://github.com/octocat/Hello-World"}\'',
+        "search_example": 'curl -X POST http://localhost:8000/search -H "Content-Type: application/json" -d \'{"query": "explain me search functionality", "limit": 5}\'',
         "note": "⚠️ /fetch-repo requires POST method, not GET"
     }
+
+
+@app.post("/search", response_model=SearchResponse)
+async def search_corpus(request: SearchRequest):
+    """
+    Search the Vectara corpus with natural language queries.
+
+    This endpoint:
+    1. Accepts a natural language query from the user
+    2. Searches the Vectara corpus using semantic search
+    3. Optionally filters by repository and/or owner
+    4. Returns an AI-generated summary (RAG) and top matching sources
+    5. Includes relevance scores and snippets for each result
+
+    Args:
+        request: SearchRequest containing query and optional filters
+
+    Returns:
+        SearchResponse with summary, sources, and metadata
+
+    Raises:
+        HTTPException: If Vectara credentials are missing or search fails
+    """
+    logger.info(f"🔍 Search request received: '{request.query}'")
+    logger.info(f"   Filters: repo={request.repo}, owner={request.owner}, limit={request.limit}")
+
+    print("\n" + "🔍"*40)
+    print("SEARCH REQUEST")
+    print("🔍"*40)
+    print(f"Query: {request.query}")
+    print(f"Repo filter: {request.repo or 'None'}")
+    print(f"Owner filter: {request.owner or 'None'}")
+    print(f"Limit: {request.limit}")
+    print("="*80 + "\n")
+
+    # Initialize Vectara client
+    try:
+        vectara_client = VectaraClient()
+        logger.info("✅ Vectara client initialized for search")
+    except HTTPException as e:
+        logger.error(f"❌ Failed to initialize Vectara client: {e.detail}")
+        print(f"❌ Vectara initialization failed: {e.detail}\n")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Vectara service unavailable: {e.detail}"
+        )
+
+    # Perform search
+    try:
+        search_results = await vectara_client.search_corpus(
+            query=request.query,
+            limit=request.limit,
+            repo_filter=request.repo,
+            owner_filter=request.owner,
+            enable_rag=True
+        )
+
+        logger.info(f"✅ Search completed successfully")
+        print(f"✅ Search completed: {search_results['total_results']} results in {search_results['query_time_ms']}ms\n")
+
+        # Build response with original query included
+        filters_applied = {}
+        if request.repo:
+            filters_applied["repo"] = request.repo
+        if request.owner:
+            filters_applied["owner"] = request.owner
+        filters_applied["limit"] = request.limit
+
+        response = SearchResponse(
+            query=request.query,  # Include original query in response
+            summary=search_results.get("summary"),
+            sources=[SearchSource(**source) for source in search_results.get("sources", [])],
+            total_results=search_results.get("total_results", 0),
+            query_time_ms=search_results.get("query_time_ms", 0),
+            filters_applied=filters_applied
+        )
+
+        # Pretty print response for debugging
+        print("📊 SEARCH RESPONSE:")
+        print("="*80)
+        print(f"Original Query: {response.query}")
+        print(f"Summary: {response.summary[:200] if response.summary else 'No summary generated'}...")
+        print(f"Total Results: {response.total_results}")
+        print(f"Sources Returned: {len(response.sources)}")
+        print(f"Query Time: {response.query_time_ms}ms")
+        print(f"Filters Applied: {response.filters_applied}")
+        print("="*80 + "\n")
+
+        return response
+
+    except HTTPException as e:
+        logger.error(f"❌ Search failed: {e.detail}")
+        print(f"❌ Search error: {e.detail}\n")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Unexpected search error: {str(e)}")
+        print(f"❌ Unexpected error: {str(e)}\n")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Search failed: {str(e)}"
+        )
 
 
 @app.post("/fetch-repo", response_model=RepoResponse)

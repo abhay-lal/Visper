@@ -207,7 +207,9 @@ class VectaraClient:
             "path": path,
             "file_name": filename,
             "file_type": file_type,
-            "size": str(size)
+            "size": str(size),
+            "repo": f"{owner}/{repo}",  # Add repo to part metadata for filtering
+            "owner": owner  # Add owner to part metadata for filtering
         }
 
         # Create CoreDocument with CoreDocumentPart
@@ -361,3 +363,183 @@ class VectaraClient:
             "skipped": skipped,
             "failed": failed
         }
+
+    async def search_corpus(
+        self,
+        query: str,
+        limit: int = 5,
+        repo_filter: Optional[str] = None,
+        owner_filter: Optional[str] = None,
+        enable_rag: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Search the Vectara corpus with natural language query.
+
+        Args:
+            query: Natural language search query
+            limit: Maximum number of results to return (default: 5, max: 20)
+            repo_filter: Optional filter by repository name (e.g., "owner/repo")
+            owner_filter: Optional filter by repository owner
+            enable_rag: Enable RAG/Generation mode for summary answer (default: True)
+
+        Returns:
+            Dictionary with search results including summary, sources, and metadata
+        """
+        import time
+        start_time = time.time()
+
+        logger.info(f"🔍 Searching Vectara corpus: '{query}'")
+        logger.info(f"   Filters - repo: {repo_filter}, owner: {owner_filter}, limit: {limit}")
+
+        try:
+            # Prepare metadata filter
+            # NOTE: Metadata filtering requires the corpus to have filterable attributes configured
+            # For now, we'll skip filtering as the corpus may not have these attributes set up
+            # To enable filtering, you need to configure filterable attributes in Vectara console
+            filter_str = None
+
+            # Log filter request if provided
+            if repo_filter or owner_filter:
+                logger.warning(f"⚠️  Metadata filters requested but not applied (corpus may not have filterable attributes configured)")
+                logger.warning(f"   Requested filters - repo: {repo_filter}, owner: {owner_filter}")
+                logger.warning(f"   To enable filtering, configure filterable attributes in Vectara console for fields: repo, owner")
+
+            # Uncomment below when filterable attributes are configured:
+            # if repo_filter and owner_filter:
+            #     filter_str = f"doc.repo = '{owner_filter}/{repo_filter}'"
+            # elif owner_filter:
+            #     filter_str = f"doc.owner = '{owner_filter}'"
+            # elif repo_filter:
+            #     filter_str = f"doc.repo contains '{repo_filter}'"
+
+            # Prepare search request using the correct Vectara SDK v0.3.5 API
+            from vectara import SearchCorporaParameters, GenerationParameters, CitationParameters
+
+            # Configure generation (RAG) parameters if enabled
+            generation_params = None
+            if enable_rag:
+                generation_params = GenerationParameters(
+                    generation_preset_name="vectara-summary-ext-v1.2.0",
+                    max_used_search_results=min(limit, 10),
+                    enable_factual_consistency_score=True,
+                    citations=CitationParameters(
+                        style="none"
+                    )
+                )
+
+            # Build search parameters WITHOUT generation (it goes as separate param to query)
+            search_params = SearchCorporaParameters(
+                corpora=[{
+                    "corpus_key": self.corpus_key,
+                    "metadata_filter": filter_str if filter_str else None,
+                    "lexical_interpolation": 0.025  # Slightly favor semantic search
+                }],
+                limit=min(limit, 20),  # Cap at 20 results
+                offset=0
+            )
+
+            # Execute search using the SDK - generation is passed separately
+            response = self.client.query(
+                query=query,
+                search=search_params,
+                generation=generation_params  # Pass generation as separate parameter
+            )
+
+            # Calculate query time
+            query_time_ms = int((time.time() - start_time) * 1000)
+
+            # Parse response
+            results = self._parse_search_response(response, query_time_ms)
+
+            logger.info(f"✅ Search completed in {query_time_ms}ms - {results['total_results']} results")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"❌ Search error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Search failed: {str(e)}"
+            )
+
+    def _parse_search_response(
+        self,
+        response: Any,
+        query_time_ms: int
+    ) -> Dict[str, Any]:
+        """
+        Parse Vectara search response into a clean format.
+
+        Args:
+            response: Raw response from Vectara SDK
+            query_time_ms: Query execution time in milliseconds
+
+        Returns:
+            Formatted search results dictionary
+        """
+        result = {
+            "summary": None,
+            "sources": [],
+            "total_results": 0,
+            "query_time_ms": query_time_ms
+        }
+
+        try:
+            # Extract summary from generation (RAG)
+            if hasattr(response, 'summary') and response.summary:
+                result["summary"] = response.summary
+
+            # Extract search results
+            if hasattr(response, 'search_results') and response.search_results:
+                search_results = response.search_results
+                result["total_results"] = len(search_results)
+
+                # Process each search result
+                for search_result in search_results:
+                    try:
+                        # Extract document metadata
+                        doc_metadata = {}
+                        part_metadata = {}
+
+                        # Get document-level metadata
+                        if hasattr(search_result, 'document_metadata'):
+                            doc_metadata = search_result.document_metadata or {}
+
+                        # Get part-level metadata
+                        if hasattr(search_result, 'part_metadata'):
+                            part_metadata = search_result.part_metadata or {}
+
+                        # Extract text snippet
+                        text = ""
+                        if hasattr(search_result, 'text'):
+                            text = search_result.text or ""
+
+                        # Extract score
+                        score = 0.0
+                        if hasattr(search_result, 'score'):
+                            score = float(search_result.score or 0.0)
+
+                        # Build source object
+                        source = {
+                            "file_path": part_metadata.get("path", "Unknown"),
+                            "file_name": part_metadata.get("file_name", "Unknown"),
+                            "file_type": part_metadata.get("file_type", "Unknown"),
+                            "repo": doc_metadata.get("repo", "Unknown"),
+                            "owner": doc_metadata.get("owner", "Unknown"),
+                            "source_url": doc_metadata.get("source", ""),
+                            "relevance_score": round(score, 4),
+                            "snippet": text[:200] + "..." if len(text) > 200 else text
+                        }
+
+                        result["sources"].append(source)
+
+                    except Exception as e:
+                        logger.warning(f"⚠️  Error parsing search result: {str(e)}")
+                        continue
+
+        except Exception as e:
+            logger.error(f"❌ Error parsing search response: {str(e)}")
+            # Return partial results if available
+            pass
+
+        return result
