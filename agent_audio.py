@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--out_dir", default=os.getenv("OUT_DIR", "media"))
     parser.add_argument("--text_file", default=os.getenv("TTS_TEXT_FILE"))
     parser.add_argument("--auto_narration", action="store_true")
-    parser.add_argument("--narration_model", default=os.getenv("NARRATION_MODEL", "gemini-2.0-flash-001"))
+    parser.add_argument("--narration_model", default=os.getenv("NARRATION_MODEL", "gemini-2.5-flash-tts"))
     parser.add_argument("--narration_tone", default=os.getenv("NARRATION_TONE", "concise, friendly"))
     parser.add_argument("--narration_sentences", default=os.getenv("NARRATION_SENTENCES", "2-3"))
     parser.add_argument("--narration_max_chars", type=int, default=int(os.getenv("NARRATION_MAX_CHARS", "220")))
