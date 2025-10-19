@@ -470,10 +470,14 @@ async def video_status():
                 data = json.load(f)
             # Basic validation
             status = data.get("status", "unknown")
+
+            # Always use the public HTTPS URL format
+            public_url = "https://storage.googleapis.com/overview-storage2/slides_with_audio.mp4"
+
             return VideoStatusResponse(
                 status=status,
-                gcs_uri=data.get("gcs_uri"),
-                public_url=data.get("public_url"),
+                gcs_uri=None,  # We don't need to return the GCS URI
+                public_url=public_url,
                 updated_at=data.get("updated_at")
             )
         else:
