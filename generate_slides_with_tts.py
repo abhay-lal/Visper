@@ -29,9 +29,85 @@ def ensure_adc() -> tuple[str, str]:
     return project_id, location
 
 
-def init_client() -> genai.Client:
+def _use_developer_api_env() -> bool:
+    return os.getenv("USE_DEVELOPER_API", "").lower() in {"1", "true", "yes"}
+
+
+def init_client(use_developer: bool | None = None) -> genai.Client:
+    use_dev = _use_developer_api_env() if use_developer is None else use_developer
+    if use_dev:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError("GOOGLE_API_KEY is required for Developer API (set in env or .env)")
+        return genai.Client(api_key=api_key)
     project_id, location = ensure_adc()
     return genai.Client(vertexai=True, project=project_id, location=location)
+
+
+def _default_image_model(use_developer: bool | None = None) -> str:
+    use_dev = _use_developer_api_env() if use_developer is None else use_developer
+    # Developer API Imagen model; adjust as needed for availability
+    return "imagen-3.0-generate-001" if use_dev else "imagen-4.0-generate-001"
+
+
+_CACHED_IMAGE_MODEL: str | None = None
+
+
+def _resolve_developer_image_model(client: genai.Client, preferred: str | None) -> str:
+    global _CACHED_IMAGE_MODEL
+    if _CACHED_IMAGE_MODEL:
+        return _CACHED_IMAGE_MODEL
+    candidates = [
+        m for m in [
+            preferred,
+            "imagen-3.0-generate-002",
+            "imagen-3.0-generate-001",
+            "imagen-3.0-fast",
+            "imagen-3.0",
+            "imagen-2.0-generate-001",
+        ]
+        if m
+    ]
+    try:
+        # Try to list models and select by availability
+        models = getattr(client.models, "list")()
+        names: List[str] = []
+        for md in models:
+            # Accept both id and full resource names
+            for attr in ("name", "model", "id"):
+                try:
+                    val = getattr(md, attr)
+                except Exception:
+                    val = None
+                if isinstance(val, str):
+                    names.append(val)
+        def is_available(model_id: str) -> bool:
+            for n in names:
+                if n.endswith(model_id) or n == model_id or n.endswith("/" + model_id):
+                    return True
+            return False
+        for cand in candidates:
+            if is_available("models/" + cand) or is_available(cand):
+                _CACHED_IMAGE_MODEL = cand
+                return cand
+        # Fallback: first imagen model found
+        for n in names:
+            if "imagen" in n:
+                # Extract id after last '/'
+                _CACHED_IMAGE_MODEL = n.split("/")[-1]
+                return _CACHED_IMAGE_MODEL
+    except Exception:
+        # If listing fails, fall back to first candidate
+        pass
+    _CACHED_IMAGE_MODEL = candidates[0]
+    return _CACHED_IMAGE_MODEL
+
+
+def _is_gemini_image_model(model_id: str | None) -> bool:
+    if not model_id:
+        return False
+    mid = model_id.lower()
+    return mid.startswith("gemini-") and ("image" in mid)
 
 
 def save_image_from_part(image_part, output_path: str) -> None:
@@ -72,38 +148,87 @@ def save_image_from_part(image_part, output_path: str) -> None:
     raise RuntimeError("Unable to save image from part; no bytes/URI available")
 
 
-def generate_images(prompt: str, count: int = 4, out_dir: str = ".") -> List[str]:
-    client = init_client()
+def generate_images(prompt: str, count: int = 4, out_dir: str = ".", image_model: str | None = None, use_developer: bool | None = None) -> List[str]:
+    client = init_client(use_developer=use_developer)
+    model = image_model or _default_image_model(use_developer)
+    if _use_developer_api_env() if use_developer is None else use_developer:
+        model = _resolve_developer_image_model(client, model)
+
+    os.makedirs(out_dir, exist_ok=True)
+    paths: List[str] = []
+
+    if _is_gemini_image_model(model):
+        # Use generate_content; expect inline_data parts with image bytes
+        for idx in range(1, count + 1):
+            resp = client.models.generate_content(model=model, contents=[prompt])
+            parts = getattr(getattr(resp.candidates[0], "content", None), "parts", []) if resp.candidates else []
+            image_saved = False
+            for part in parts:
+                inline = getattr(part, "inline_data", None)
+                if inline is not None and getattr(inline, "data", None):
+                    img = Image.open(BytesIO(inline.data))
+                    output_path = os.path.join(out_dir, f"slide_{idx}.png")
+                    img.save(output_path)
+                    paths.append(output_path)
+                    image_saved = True
+                    break
+            if not image_saved:
+                # Fallback: try text or skip
+                output_path = os.path.join(out_dir, f"slide_{idx}.png")
+                # Create a 1x1 placeholder if no image parts
+                Image.new("RGB", (1, 1), color=(255, 255, 255)).save(output_path)
+                paths.append(output_path)
+        return paths
+
+    # Imagen path
     response = client.models.generate_images(
-        model="imagen-4.0-generate-001",
+        model=model,
         prompt=prompt,
         config=types.GenerateImagesConfig(
             number_of_images=count,
         ),
     )
-    paths: List[str] = []
     for idx, generated_image in enumerate(response.generated_images, start=1):
-        os.makedirs(out_dir, exist_ok=True)
         output_path = os.path.join(out_dir, f"slide_{idx}.png")
         save_image_from_part(generated_image.image, output_path)
         paths.append(output_path)
     return paths
 
 
-def generate_images_for_slides(shared_material: str, slide_prompts: List[str], out_dir: str = ".") -> List[str]:
-    client = init_client()
+def generate_images_for_slides(shared_material: str, slide_prompts: List[str], out_dir: str = ".", image_model: str | None = None, use_developer: bool | None = None) -> List[str]:
+    client = init_client(use_developer=use_developer)
+    model = image_model or _default_image_model(use_developer)
+    if _use_developer_api_env() if use_developer is None else use_developer:
+        model = _resolve_developer_image_model(client, model)
     paths: List[str] = []
+    os.makedirs(out_dir, exist_ok=True)
     for idx, slide_prompt in enumerate(slide_prompts, start=1):
         prompt = f"{shared_material}\nSlide {idx}: {slide_prompt}"
+        output_path = os.path.join(out_dir, f"slide_{idx}.png")
+        if _is_gemini_image_model(model):
+            resp = client.models.generate_content(model=model, contents=[prompt])
+            parts = getattr(getattr(resp.candidates[0], "content", None), "parts", []) if resp.candidates else []
+            image_saved = False
+            for part in parts:
+                inline = getattr(part, "inline_data", None)
+                if inline is not None and getattr(inline, "data", None):
+                    img = Image.open(BytesIO(inline.data))
+                    img.save(output_path)
+                    paths.append(output_path)
+                    image_saved = True
+                    break
+            if not image_saved:
+                Image.new("RGB", (1, 1), color=(255, 255, 255)).save(output_path)
+                paths.append(output_path)
+            continue
+
         response = client.models.generate_images(
-            model="imagen-4.0-generate-001",
+            model=model,
             prompt=prompt,
             config=types.GenerateImagesConfig(
                 number_of_images=1,
             ),
         )
-        os.makedirs(out_dir, exist_ok=True)
-        output_path = os.path.join(out_dir, f"slide_{idx}.png")
         save_image_from_part(response.generated_images[0].image, output_path)
         paths.append(output_path)
     return paths

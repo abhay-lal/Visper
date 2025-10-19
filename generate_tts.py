@@ -68,6 +68,11 @@ def _tts_cloud(text: str, voice_name: str) -> bytes:
         print("Missing dependency google-cloud-texttospeech. Install with: pip install google-cloud-texttospeech")
         sys.exit(1)
 
+    # Ensure ADC is available even when not calling init_client()
+    credentials_path = os.getenv("VERTEX_AI_CREDENTIALS_PATH")
+    if credentials_path and not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.abspath(credentials_path)
+
     client = texttospeech.TextToSpeechClient()
     # Map Gemini voice to Cloud TTS voice if needed; default to en-US-Neural2-C
     mapped_voice = {

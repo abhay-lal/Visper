@@ -3,6 +3,7 @@ import os
 import sys
 import importlib
 import re
+import json
 
 
 def _upload_to_gcs(gcs_uri: str, local_path: str) -> str:
@@ -37,6 +38,8 @@ def main() -> None:
     p_img.add_argument("--shared", default=os.getenv("SLIDES_SHARED", ""), help="Shared material included in every slide prompt")
     p_img.add_argument("--slide", action="append", default=None, help="Per-slide prompt; repeat flag for multiple slides")
     p_img.add_argument("--slides_file", default=None, help="Path to a text file with one slide prompt per line")
+    p_img.add_argument("--use_developer_api", action="store_true", help="Use Google AI Studio Developer API (requires GOOGLE_API_KEY)")
+    p_img.add_argument("--image_model", default=os.getenv("IMAGE_MODEL"), help="Override image model id")
 
     # tts
     p_tts = sub.add_parser("tts", help="Generate TTS WAV")
@@ -59,6 +62,7 @@ def main() -> None:
     p_all.add_argument("--shared", default=os.getenv("SLIDES_SHARED", ""), help="Shared material included in every slide prompt")
     p_all.add_argument("--slide", action="append", default=None, help="Per-slide prompt; repeat flag for multiple slides")
     p_all.add_argument("--slides_file", default=os.getenv("SLIDES_FILE"), help="Path to a text file with one slide prompt per line")
+    p_all.add_argument("--slides_json", default=os.getenv("SLIDES_JSON"), help="Path to JSON or raw JSON to derive slide prompts")
     p_all.add_argument("--text", default=os.getenv("TTS_TEXT", "Say cheerfully: Have a wonderful day!"))
     p_all.add_argument("--text_file", default=os.getenv("TTS_TEXT_FILE"), help="Path to a text file for narration")
     p_all.add_argument("--voice", default=os.getenv("TTS_VOICE", "Kore"))
@@ -97,10 +101,9 @@ def main() -> None:
                 with open(args.slides_file, "r", encoding="utf-8") as f:
                     slide_prompts.extend([line.strip() for line in f if line.strip()])
             mod = importlib.import_module("generate_slides_with_tts")
-            paths = mod.generate_images_for_slides(args.shared or "", slide_prompts)
+            paths = mod.generate_images_for_slides(args.shared or "", slide_prompts, out_dir=os.getenv("OUT_DIR", "media"), image_model=args.image_model, use_developer=args.use_developer_api)
         else:
-            mod = importlib.import_module("generate_robot_images")
-            paths = mod.main() if hasattr(mod, "main") else None
+            paths = mod.generate_images(args.prompt, args.count, out_dir=os.getenv("OUT_DIR", "media"), image_model=args.image_model, use_developer=args.use_developer_api)
         if paths is not None:
             print("Saved:")
             for p in paths:
@@ -133,30 +136,153 @@ def main() -> None:
         img_mod = importlib.import_module("generate_slides_with_tts")
         used_slide_prompts = None
         if args.preset == "minimal-box":
-            shared = (args.shared or "") + "\nStyle: elegant, minimal, readable. Neutral or off-white background. Clean boxes with subtle shadows and light borders. Use short bullet lines (•) with plenty of spacing."
-            arch_list = [s.strip() for s in (args.architecture or "").split(",") if s.strip()]
-            feat_list = [s.strip() for s in (args.features or "").split(",") if s.strip()]
-            slides_prompts = [
-                f"Minimal intro slide with centered title and subtitle boxes.\n• Title (bold): [{args.project_name or 'Project'}]\n• Lots of whitespace, balanced alignment, subtle divider.\nFlat, elegant UI.",
-                f"Problem slide with a header and one content box.\n• Header (bold): Problem\n• Body: [{args.problem or 'Problem Statement'}]\n• Use light borders and gentle spacing.\nNeutral background.",
-                ("Solution slide with stacked boxes.\n• Header (bold): Solution\n• Steps: evenly stacked boxes for architecture elements.\n• Use minimal dividers.\n" + ("Architecture elements: " + "; ".join(arch_list) if arch_list else "")).strip(),
-                ("Key Features slide with small equal boxes.\n• Header: Key Features\n• 3–4 boxes each with a short bullet.\n• Clean text, light borders, no icons.\n" + ("Features: " + "; ".join(feat_list) if feat_list else "")).strip(),
-                f"CTA slide with two centered boxes.\n• Top: Check it out on GitHub\n• Bottom (monospace or underlined): [{args.repo or 'https://github.com/...'}]\n• Simple divider and ample whitespace.",
+            # Deprecated static preset path retained for compatibility; prefer --slides_json
+            shared = (args.shared or "") + "\nStyle: elegant, minimal, readable. Neutral or off-white background. Clean boxes with subtle shadows and light borders. Use short bullets (•)."
+            slides = []
+            used_slide_prompts = None
+        elif args.slides_json:
+            # Build prompts dynamically from JSON (file path or raw JSON string)
+            raw = args.slides_json
+            try:
+                if os.path.exists(raw):
+                    with open(raw, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                else:
+                    data = json.loads(raw)
+            except Exception:
+                data = {}
+
+            # Safe getters with variants
+            def get_any(dct, keys, default=""):
+                for k in keys:
+                    if k in dct and isinstance(dct[k], str) and dct[k].strip():
+                        return dct[k].strip()
+                return default
+
+            title = get_any(data, ["title", "name", "repo", "repository_name"], os.getenv("PROJECT_NAME", "Project"))
+            description = get_any(data, ["description", "summary", "readme", "about"], "")
+            user_journey = get_any(data, ["user_journey", "usage", "flow", "how_it_works"], "")
+            repo = get_any(data, ["repository", "repo_url", "url"], os.getenv("REPO", "https://github.com/..."))
+            tech_stack = get_any(data, ["tech_stack", "stack", "technologies", "tech"], "")
+
+            # Fallbacks: also scan all string values for keywords
+            def flatten_strings(obj):
+                out = []
+                if isinstance(obj, dict):
+                    for v in obj.values():
+                        out.extend(flatten_strings(v))
+                elif isinstance(obj, list):
+                    for v in obj:
+                        out.extend(flatten_strings(v))
+                elif isinstance(obj, str):
+                    out.append(obj)
+                return out
+
+            all_text = "\n".join(flatten_strings(data)).lower()
+
+            def first_sentence(text: str, limit: int = 160) -> str:
+                if not text:
+                    return ""
+                cut = text.strip().replace("\n", " ")
+                if len(cut) > limit:
+                    cut = cut[:limit]
+                for p in [". ", "! ", "? "]:
+                    idx = cut.find(p)
+                    if idx != -1:
+                        return cut[: idx + 1].strip()
+                return cut.strip()
+
+            tagline = first_sentence(description) or first_sentence(all_text)
+
+            # Problem statement heuristics
+            problem_stmt = first_sentence(user_journey, 220)
+            if not problem_stmt:
+                # Look for cues
+                if "problem" in all_text:
+                    problem_stmt = "Users face challenges addressed by this project; this slide summarizes them."
+                elif "auth" in all_text or "login" in all_text:
+                    problem_stmt = "Users need a secure, simple way to sign in and access the app."
+                else:
+                    problem_stmt = first_sentence(description, 220) or "Users need a streamlined experience to accomplish their core tasks."
+
+            # Tech bullets (parse markdown-ish lists)
+            tech_lines = []
+            for ln in tech_stack.splitlines():
+                t = ln.strip().lstrip("*- ")
+                if t:
+                    tech_lines.append(t)
+            tech_bullets = [t for t in tech_lines if ":" in t]
+
+            
+
+            # Architecture bullets (generic)
+            
+            shared = (args.shared or "") + "\nStyle: elegant, minimal, readable. Neutral/off-white background. Subtle borders, clean typography, short bullets (•)."
+
+            # Prepare tech stack items for a dedicated slide (prefer explicit lines)
+            tech_stack_items = tech_lines[:4] if tech_lines else [
+                "Languages & Frameworks",
+                "Libraries & Tooling",
+                "Services & APIs",
+                "CI/CD & Infrastructure",
             ]
-            slides = img_mod.generate_images_for_slides(shared, slides_prompts)
+
+            slides_prompts = [
+            # Slide 1 — Title & Hook
+            (
+                "Minimal intro slide with centered box layout. "
+                "• First line: short project title (≤3 words) derived from: "
+                f"[{data['title']}]. "
+                "• Second line: 1-line short tagline (≤5 words) summarizing: "
+                f"[{data['description']}]. "
+                "Design: clean background, subtle geometric art, high contrast typography, no logos."
+            ),
+
+            # Slide 2 — User Journey / Problem
+            (
+                "Slide with 3–4 minimal boxed bullets. "
+                "• Each bullet: 1–3 words summarizing key steps or problems. "
+                "• Condense from: "
+                f"[{data['user_journey']}]. "
+                "• Keep all bullets evenly spaced in a single column. "
+                "• Simple background, no icons or extra decoration."
+            ),
+
+            # Slide 3 — Tech Stack
+            (
+                "Tech Stack grid of pills. "
+                "• Each pill: single token or short tech name (e.g., 'Next.js', 'TypeScript'). "
+                "• Derive from: "
+                f"[{data['tech_stack']}]. "
+                "• 2–3 rows, evenly spaced, rounded pills with light borders. "
+                "• One simple heading: 'Tech Stack' (2 words max). "
+                "• No logos, no captions."
+            ),
+
+            # Slide 4 — CTA
+            (
+                "Closing slide with minimal CTA. "
+                "• Top line: 'Open Repo' "
+                "• Bottom line: shortened repo link derived from: "
+                f"[{data['repository']}]. "
+                "• Clean background, subtle divider, generous margins. "
+                "• No QR codes or extra elements."
+            )
+            ]
+            slides = img_mod.generate_images_for_slides(shared, slides_prompts, out_dir=args.out_dir, image_model=os.getenv("IMAGE_MODEL"), use_developer=os.getenv("USE_DEVELOPER_API", "").lower() in {"1","true","yes"})
             used_slide_prompts = slides_prompts
         elif args.slide or args.slides_file:
             prompts = args.slide or []
             if args.slides_file and os.path.exists(args.slides_file):
                 with open(args.slides_file, "r", encoding="utf-8") as f:
                     prompts.extend([line.strip() for line in f if line.strip()])
-            slides = img_mod.generate_images_for_slides(args.shared or "", prompts)
+            slides = img_mod.generate_images_for_slides(args.shared or "", prompts, out_dir=args.out_dir, image_model=os.getenv("IMAGE_MODEL"), use_developer=os.getenv("USE_DEVELOPER_API", "").lower() in {"1","true","yes"})
             used_slide_prompts = prompts
         else:
             # Fallback to simple prompt+count env vars if nothing provided
             prompt = os.getenv("SLIDES_PROMPT", "Robot holding a red skateboard")
             count = int(os.getenv("SLIDES_COUNT", "4"))
-            slides = img_mod.generate_images(prompt, count)
+            slides = img_mod.generate_images(prompt, count, out_dir=args.out_dir, image_model=os.getenv("IMAGE_MODEL"), use_developer=os.getenv("USE_DEVELOPER_API", "").lower() in {"1","true","yes"})
         # 2) tts (single or per-slide)
         os.makedirs(args.out_dir, exist_ok=True)
         tts_mod = importlib.import_module("generate_tts")
@@ -172,18 +298,22 @@ def main() -> None:
                 blocks = [b.strip() for b in re.split(r"\n\s*\n", raw) if b.strip()]
             if len(blocks) > 1:
                 per_slide_texts = blocks
-        # Auto-generate narration if requested and no explicit per-slide text provided
-        if per_slide_texts is None and args.auto_narration and used_slide_prompts:
+        # Auto-generate narration if requested or when slides come from JSON, and no explicit per-slide text provided
+        if per_slide_texts is None and (args.auto_narration or args.slides_json) and used_slide_prompts:
             try:
                 # Reuse Vertex-initialized client
                 narr_mod = importlib.import_module("generate_slides_with_tts")
                 client = narr_mod.init_client()
                 n = len(slides)
+                target_sentences = "1-2" if args.slides_json else args.narration_sentences
                 prompt_lines = [
                     "You are writing spoken narration for a slide deck.",
                     f"Return exactly {n} blocks, one per slide, in order.",
-                    f"Each block should be {args.narration_sentences} sentences, natural and clear.",
+                    f"Each block should be {target_sentences} full sentences, natural and clear.",
                     f"Aim for <= {args.narration_max_chars} characters per block.",
+                    "Write complete explanatory sentences that briefly describe what's on the slide.",
+                    "Do not use bullet points, lists, or headings in narration.",
+                    "Do not copy the slide prompt verbatim; paraphrase to sound natural.",
                     "Separate blocks with a line containing exactly three dashes: ---",
                     "Do not number or label the blocks. Output only the blocks.",
                     "Slides:",
