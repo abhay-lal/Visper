@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from utils import parse_github_url
 from github_client import GitHubAPIClient
 from vectara_client import VectaraClient
+from gemini_enhancer import enhance_with_gemini
 
 
 # Configure logging
@@ -239,6 +240,26 @@ async def search_corpus(request: SearchRequest):
         logger.info(f"✅ Search completed successfully")
         print(f"✅ Search completed: {search_results['total_results']} results in {search_results['query_time_ms']}ms\n")
 
+        # Enhance results with Gemini AI
+        vectara_summary = search_results.get("summary")
+        vectara_sources = search_results.get("sources", [])
+
+        logger.info("🤖 Enhancing search results with Gemini 2.5 Flash...")
+        print("🤖 Calling Gemini AI for enhanced response...\n")
+
+        try:
+            enhanced_summary = await enhance_with_gemini(
+                user_query=request.query,
+                vectara_summary=vectara_summary,
+                vectara_sources=vectara_sources
+            )
+            logger.info("✅ Gemini enhancement successful")
+            print(f"✅ Gemini enhancement completed\n")
+        except Exception as gemini_error:
+            logger.warning(f"⚠️ Gemini enhancement failed: {str(gemini_error)}, using original summary")
+            print(f"⚠️ Gemini failed, falling back to original summary\n")
+            enhanced_summary = vectara_summary
+
         # Build response with original query included
         filters_applied = {}
         if request.repo:
@@ -249,8 +270,8 @@ async def search_corpus(request: SearchRequest):
 
         response = SearchResponse(
             query=request.query,  # Include original query in response
-            summary=search_results.get("summary"),
-            sources=[SearchSource(**source) for source in search_results.get("sources", [])],
+            summary=enhanced_summary,  # Use Gemini-enhanced summary
+            sources=[SearchSource(**source) for source in vectara_sources],
             total_results=search_results.get("total_results", 0),
             query_time_ms=search_results.get("query_time_ms", 0),
             filters_applied=filters_applied
