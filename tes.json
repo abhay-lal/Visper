@@ -1,0 +1,7 @@
+{
+    "title": "KshitijD21/job-portal-ui",
+    "description": "This TypeScript repository provides API functionalities for user authentication, including login, logout, registration, and Google OAuth integration. It also offers comprehensive job management features, such as fetching and creating job postings, uploading resumes, and using AI for resume comparison. Overall, its purpose is to facilitate API interactions for job searching and application processes on a platform.",
+    "user_journey": "Users begin their journey by either creating a new account or logging in using their email and password. Upon successful authentication, they gain access to personalized job recommendations and the ability to apply for jobs.\n\nUsers interact with the application by entering their email and password into designated form fields and clicking a \"Get Started\" button to submit their credentials. The interface also provides options to navigate between signing up or logging in, and it offers feedback messages for successful actions or errors.",
+    "repository": "https://github.com/KshitijD21/job-portal-ui",
+    "tech_stack": "Based on the information provided, here is the tech stack used:\n\n*   **Framework:** Next.js\n*   **Language:** TypeScript\n*   **UI Library:** React\n*   **Styling:** Tailwind CSS\n*   **UI Components:** Radix UI\n*   **Animation:** Framer Motion\n*   **Icons:** Lucide React\n*   **API Communication:** Axios\n*   **Linting:** ESLint"
+  }

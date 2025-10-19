@@ -1,0 +1,7 @@
+{
+  "title": "KshitijD21/job-portal-ui",
+  "description": "This repository contains a TypeScript and Next.js web application focused on job management, user authentication, and AI-powered insights for job applications, including resume analysis. It incorporates Radix-UI components and Lucide icons for interactive elements like dropdown menus, along with configured TypeScript and Next.js settings including path aliases.",
+  "user_journey": "The user journey primarily involves interacting with sign-in and sign-up forms to authenticate using an email and password. Upon successful login, handled through Axios API requests with interceptors, users are redirected to the dashboard, with further application navigation adjusting based on their authentication status and role.",
+  "repository": "https://github.com/KshitijD21/job-portal-ui",
+  "tech_stack": "This repository is built on a modern web stack, utilizing TypeScript, Next.js, and React for its development, with Tailwind CSS providing styling. Key tools and features include theme handling with next-themes, components from Shadcn UI (e.g., forms, buttons, inputs), and a modular project structure with dedicated components, utilities, and hooks."
+}
