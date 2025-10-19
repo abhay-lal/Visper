@@ -74,7 +74,7 @@ def main() -> None:
     p_all.add_argument("--gcs_uri", default=os.getenv("GCS_URI"), help="Upload final MP4 to this GCS URI (gs://bucket/path.mp4)")
     # auto narration generation via Gemini text model
     p_all.add_argument("--auto_narration", action="store_true", help="Generate narration per slide via Gemini text model")
-    p_all.add_argument("--narration_model", default=os.getenv("NARRATION_MODEL", "gemini-2.0-flash-001"))
+    p_all.add_argument("--narration_model", default=os.getenv("NARRATION_MODEL", "gemini-2.5-flash-tts"))
     p_all.add_argument("--narration_tone", default=os.getenv("NARRATION_TONE", "concise, friendly"))
     p_all.add_argument("--narration_sentences", default=os.getenv("NARRATION_SENTENCES", "2-3"), help="Target sentences per slide block")
     p_all.add_argument("--narration_max_chars", type=int, default=int(os.getenv("NARRATION_MAX_CHARS", "220")))

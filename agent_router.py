@@ -3,8 +3,6 @@ import json
 import asyncio
 from uagents import Agent, Context, Model
 import subprocess
-import re
-from datetime import datetime
 
 
 class GenericMessage(Model):
@@ -60,7 +58,6 @@ async def handle_response(ctx: Context, sender: str, msg: GenericMessage):
             tts_backend = os.getenv("TTS_BACKEND", "cloud")
             narration_model = os.getenv("NARRATION_MODEL", "gemini-2.5-flash-tts")
             gcs_uri = os.getenv("GCS_URI", "")
-            status_file = os.getenv("VIDEO_STATUS_FILE", os.path.join(out_dir, "video_status.json"))
             cmd = [
                 "python", "run.py", "all",
                 "--slides_json", "analysis.json",
@@ -74,56 +71,9 @@ async def handle_response(ctx: Context, sender: str, msg: GenericMessage):
 
             print("\n▶️ Running pipeline:", " ".join(cmd))
             try:
-                # Capture output to extract GCS URL after upload
-                proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
-                stdout = proc.stdout or ""
-                stderr = proc.stderr or ""
-                if stdout:
-                    print(stdout)
-                if stderr:
-                    print(stderr)
-
-                # Parse a line like: "Uploaded to gs://bucket/path.mp4"
-                m = re.search(r"Uploaded to\s+(gs://[^\s]+)", stdout)
-                if m:
-                    uploaded_uri = m.group(1)
-                    # Best-effort public URL (if the object is public)
-                    public_url = None
-                    try:
-                        # Convert gs://bucket/path.mp4 -> https://storage.googleapis.com/bucket/path.mp4
-                        without_scheme = uploaded_uri[len("gs://"):]
-                        bucket, obj = without_scheme.split("/", 1)
-                        public_url = f"https://storage.googleapis.com/{bucket}/{obj}"
-                    except Exception:
-                        public_url = None
-
-                    payload = {
-                        "status": "completed",
-                        "gcs_uri": uploaded_uri,
-                        "public_url": public_url,
-                        "updated_at": datetime.utcnow().isoformat() + "Z"
-                    }
-                    try:
-                        os.makedirs(os.path.dirname(status_file), exist_ok=True)
-                        with open(status_file, "w", encoding="utf-8") as f:
-                            json.dump(payload, f, indent=2)
-                        print(f"💾 Wrote video status to {status_file}")
-                    except Exception as write_err:
-                        ctx.logger.warning(f"Failed to write video status file: {write_err}")
+                subprocess.run(cmd, check=True)
             except subprocess.CalledProcessError as e:
                 ctx.logger.error(f"Pipeline failed: {e}")
-                # Write error status
-                try:
-                    error_payload = {
-                        "status": "error",
-                        "error": str(e),
-                        "updated_at": datetime.utcnow().isoformat() + "Z"
-                    }
-                    os.makedirs(os.path.dirname(status_file), exist_ok=True)
-                    with open(status_file, "w", encoding="utf-8") as f:
-                        json.dump(error_payload, f, indent=2)
-                except Exception:
-                    pass
 
         # Graceful exit
         asyncio.get_event_loop().call_later(1, os._exit, 0)

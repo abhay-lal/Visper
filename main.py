@@ -397,21 +397,56 @@ async def fetch_repository(request: RepoRequest):
             "error": str(e)
         }
 
-    # Trigger agent only if Vectara upload succeeded (at least one ingested, zero failed)
+    # Always trigger agent launch after Vectara ingestion attempt (no success check)
     try:
-        vectara_success = (
-            isinstance(vectara_stats, dict)
-            and vectara_stats.get("ingested", 0) > 0
-            and vectara_stats.get("failed", 0) == 0
-        )
-        if vectara_success:
-            logger.info("✅ Vectara ingestion successful. Launching agent_router.py in background…")
-            env = os.environ.copy()
-            env["GITHUB_URL"] = request.repo_url
-            agent_path = os.path.join(os.path.dirname(__file__), "agent_router.py")
-            subprocess.Popen([sys.executable or "python", agent_path], env=env)
+        logger.info("▶️ Launching agent_router.py in background (no Vectara success check)…")
+        env = os.environ.copy()
+        env["GITHUB_URL"] = request.repo_url
+        env.setdefault("AUTO_RUN_PIPELINE", "true")
+        # uAgents expects PORT; keep AGENT_PORT for our logs
+        env.setdefault("AGENT_PORT", "8100")
+        env.setdefault("PORT", env.get("AGENT_PORT", "8100"))
+        out_dir = env.get("OUT_DIR", "media")
+        os.makedirs(out_dir, exist_ok=True)
+        agent_log = os.path.join(out_dir, "agent_router.log")
+        agent_pid_file = os.path.join(out_dir, "agent_router.pid")
+        agent_status_file = os.path.join(out_dir, "agent_status.json")
+        agent_path = os.path.join(os.path.dirname(__file__), "agent_router.py")
+
+        if not os.path.exists(agent_path):
+            logger.error(f"❌ agent_router.py not found at {agent_path}")
         else:
-            logger.info("ℹ️ Skipping agent launch: Vectara ingestion not fully successful.")
+            # Write a header line to the log and launch
+            try:
+                with open(agent_log, "a", encoding="utf-8") as lf:
+                    lf.write("\n" + "="*80 + "\n")
+                    lf.write("Starting agent_router.py\n")
+                    lf.write(f"Repo: {request.repo_url}\n")
+                    lf.write(f"Time: {__import__('datetime').datetime.utcnow().isoformat()}Z\n")
+                    lf.write("="*80 + "\n")
+                proc = subprocess.Popen(
+                    [sys.executable or "python", agent_path],
+                    env=env,
+                    stdout=open(agent_log, "a"),
+                    stderr=open(agent_log, "a")
+                )
+                # Persist PID and status for visibility
+                try:
+                    with open(agent_pid_file, "w", encoding="utf-8") as pf:
+                        pf.write(str(proc.pid))
+                    with open(agent_status_file, "w", encoding="utf-8") as sf:
+                        json.dump({
+                            "status": "launched",
+                            "pid": proc.pid,
+                            "repo_url": request.repo_url,
+                            "log_file": agent_log,
+                            "started_at": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                        }, sf, indent=2)
+                except Exception as persist_err:
+                    logger.warning(f"⚠️ Failed to write agent PID/status files: {persist_err}")
+                logger.info(f"🚀 agent_router.py started with PID {proc.pid}. Logs: {agent_log}")
+            except Exception as launch_err:
+                logger.error(f"❌ Failed launching agent_router.py: {launch_err}")
     except Exception as e:
         logger.warning(f"⚠️ Failed to start agent_router.py: {e}")
 
@@ -448,6 +483,51 @@ async def video_status():
         raise HTTPException(status_code=500, detail="Failed to read video status")
 
 
+class AgentStatusResponse(BaseModel):
+    """Response model for agent process status."""
+    running: bool
+    pid: Optional[int] = None
+    repo_url: Optional[str] = None
+    log_file: Optional[str] = None
+    started_at: Optional[str] = None
+
+
+@app.get("/agent-status", response_model=AgentStatusResponse)
+async def agent_status():
+    """Report whether agent_router.py is currently running and where logs are written."""
+    out_dir = os.getenv("OUT_DIR", "media")
+    pid_path = os.path.join(out_dir, "agent_router.pid")
+    status_path = os.path.join(out_dir, "agent_status.json")
+    log_path = os.path.join(out_dir, "agent_router.log")
+    pid = None
+    try:
+        if os.path.exists(pid_path):
+            with open(pid_path, "r", encoding="utf-8") as f:
+                pid = int((f.read() or "0").strip() or "0")
+        running = False
+        if pid:
+            try:
+                # On Unix, signal 0 checks existence without sending a signal
+                os.kill(pid, 0)
+                running = True
+            except Exception:
+                running = False
+        meta = {}
+        if os.path.exists(status_path):
+            with open(status_path, "r", encoding="utf-8") as sf:
+                meta = json.load(sf)
+        return AgentStatusResponse(
+            running=running,
+            pid=pid if pid else None,
+            repo_url=meta.get("repo_url"),
+            log_file=log_path if os.path.exists(log_path) else None,
+            started_at=meta.get("started_at")
+        )
+    except Exception as e:
+        logger.error(f"❌ Failed to read agent status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read agent status")
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -474,4 +554,4 @@ if __name__ == "__main__":
     print("API Documentation: http://localhost:8000/docs")
     print("Interactive API: http://localhost:8000/redoc\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8200)
