@@ -107,7 +107,7 @@ def main() -> None:
             arch_list = [s.strip() for s in (args.architecture or "").split(",") if s.strip()]
             feat_list = [s.strip() for s in (args.features or "").split(",") if s.strip()]
             slides_prompts = [
-                f"Minimal intro slide with centered title and subtitle boxes.\n• Title (bold): [{args.project_name or 'Project'}]\n• Subtitle (regular): [{args.tagline or ''}]\n• Lots of whitespace, balanced alignment, subtle divider.\nFlat, elegant UI.",
+                f"Minimal intro slide with centered title and subtitle boxes.\n• Title (bold): [{args.project_name or 'Project'}]\n• Lots of whitespace, balanced alignment, subtle divider.\nFlat, elegant UI.",
                 f"Problem slide with a header and one content box.\n• Header (bold): Problem\n• Body: [{args.problem or 'Problem Statement'}]\n• Use light borders and gentle spacing.\nNeutral background.",
                 ("Solution slide with stacked boxes.\n• Header (bold): Solution\n• Steps: evenly stacked boxes for architecture elements.\n• Use minimal dividers.\n" + ("Architecture elements: " + "; ".join(arch_list) if arch_list else "")).strip(),
                 ("Key Features slide with small equal boxes.\n• Header: Key Features\n• 3–4 boxes each with a short bullet.\n• Clean text, light borders, no icons.\n" + ("Features: " + "; ".join(feat_list) if feat_list else "")).strip(),
