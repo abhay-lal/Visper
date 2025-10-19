@@ -228,46 +228,43 @@ def main() -> None:
             ]
 
             slides_prompts = [
-            # Slide 1 — Title & Hook
-            (
-                "Minimal intro slide with centered box layout. "
-                "• First line: short project title (≤3 words) derived from: "
-                f"[{data['title']}]. "
-                "• Second line: 1-line short tagline (≤5 words) summarizing: "
-                f"[{data['description']}]. "
-                "Design: clean background, subtle geometric art, high contrast typography, no logos."
-            ),
-
-            # Slide 2 — User Journey / Problem
-            (
-                "Slide with 3–4 minimal boxed bullets. "
-                "• Each bullet: 1–3 words summarizing key steps or problems. "
-                "• Condense from: "
-                f"[{data['user_journey']}]. "
-                "• Keep all bullets evenly spaced in a single column. "
-                "• Simple background, no icons or extra decoration."
-            ),
-
-            # Slide 3 — Tech Stack
-            (
-                "Tech Stack grid of pills. "
-                "• Each pill: single token or short tech name (e.g., 'Next.js', 'TypeScript'). "
-                "• Derive from: "
-                f"[{data['tech_stack']}]. "
-                "• 2–3 rows, evenly spaced, rounded pills with light borders. "
-                "• One simple heading: 'Tech Stack' (2 words max). "
-                "• No logos, no captions."
-            ),
-
-            # Slide 4 — CTA
-            (
-                "Closing slide with minimal CTA. "
-                "• Top line: 'Open Repo' "
-                "• Bottom line: shortened repo link derived from: "
-                f"[{data['repository']}]. "
-                "• Clean background, subtle divider, generous margins. "
-                "• No QR codes or extra elements."
-            )
+                (
+                    "SLIDE 1 — Title + Subtitle. Use 'Light Minimal' master.\n"
+                    "BACKGROUND: light neutral.\n"
+                    f"TITLE: choose a short phrase from [{title}]; reorder allowed; no new words.\n"
+                    f"SUBTITLE: choose a short phrase from [{description}]; reorder allowed; no new words.\n"
+                    "LAYOUT: center both lines; title bold; subtitle smaller.\n"
+                    "DECOR: thin divider below the subtitle.\n"
+                    "NO extra text, icons, or logos."
+                ),
+                (
+                    "SLIDE 2 — Content Layout (Title + Boxes). Use 'Light Minimal' master.\n"
+                    "BACKGROUND: white or soft neutral.\n"
+                    "TITLE: 'User Journey'.\n"
+                    f"CONTENT: single centered column of rounded boxes. Each box uses 1–3 words only from [{user_journey}].\n"
+                    "Do not paraphrase; only truncate or reorder existing words.\n"
+                    "BOX STYLE: alternating soft background tints, light border, subtle shadow.\n"
+                    "TYPOGRAPHY: clean dark text, centered.\n"
+                    "SPACING: evenly distributed vertically."
+                ),
+                (
+                    "SLIDE 3 — Section Layout (Title + Grid). Use 'Light Minimal' master.\n"
+                    "BACKGROUND: white or soft neutral.\n"
+                    "TITLE: 'Tech Stack'.\n"
+                    f"TOKENS: extract tool names only from [{tech_stack}], remove duplicates; keep tokens short; no renaming.\n"
+                    "PILLS: rounded pill shapes with very light tints, thin border, dark text, arranged in a grid.\n"
+                    "LAYOUT: grid centered with small, even gaps.\n"
+                    "NO logos or captions beyond tokens."
+                ),
+                (
+                    "SLIDE 4 — Title Only Layout. Use 'Light Minimal' master.\n"
+                    "BACKGROUND: light neutral shade.\n"
+                    "TOP LINE: 'Open Repo'.\n"
+                    f"BOTTOM LINE: use the link from [{repo}], optionally shortened by removing the 'https://github.com/' prefix.\n"
+                    "STYLE: place the link inside a rounded pill with a soft background tint and light border.\n"
+                    "DECOR: subtle divider between the top line and the link.\n"
+                    "NO QR codes or extra elements."
+                ),
             ]
             slides = img_mod.generate_images_for_slides(shared, slides_prompts, out_dir=args.out_dir, image_model=os.getenv("IMAGE_MODEL"), use_developer=os.getenv("USE_DEVELOPER_API", "").lower() in {"1","true","yes"})
             used_slide_prompts = slides_prompts
