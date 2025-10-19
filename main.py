@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from utils import parse_github_url
 from github_client import GitHubAPIClient
+from vectara_client import VectaraClient
 
 
 # Configure logging
@@ -69,6 +70,7 @@ class RepoResponse(BaseModel):
     repo: str
     total_files: int
     files: list
+    vectara_ingestion: Dict[str, Any] = None
 
 
 def print_file_info(file_data: Dict[str, Any]) -> None:
@@ -212,12 +214,35 @@ async def fetch_repository(request: RepoRequest):
 
     print("="*80 + "\n")
 
+    # Ingest files into Vectara
+    vectara_stats = None
+    try:
+        logger.info("🔄 Starting Vectara ingestion...")
+        vectara_client = VectaraClient()
+        vectara_stats = await vectara_client.ingest_files(all_files, owner, repo)
+        logger.info(f"✅ Vectara ingestion completed: {vectara_stats}")
+    except HTTPException as e:
+        logger.warning(f"⚠️  Vectara ingestion skipped: {e.detail}")
+        print(f"⚠️  Vectara ingestion skipped: {e.detail}\n")
+        vectara_stats = {
+            "status": "skipped",
+            "reason": e.detail
+        }
+    except Exception as e:
+        logger.error(f"❌ Vectara ingestion error: {str(e)}")
+        print(f"❌ Vectara ingestion error: {str(e)}\n")
+        vectara_stats = {
+            "status": "error",
+            "error": str(e)
+        }
+
     # Return response
     return RepoResponse(
         owner=owner,
         repo=repo,
         total_files=len(all_files),
-        files=all_files
+        files=all_files,
+        vectara_ingestion=vectara_stats
     )
 
 
@@ -231,6 +256,17 @@ if __name__ == "__main__":
         print("  export GITHUB_TOKEN=your_token_here")
         print("\nOr create a .env file with:")
         print("  GITHUB_TOKEN=your_token_here\n")
+
+    # Check if Vectara credentials are set
+    vectara_vars = ["VECTARA_CORPUS_KEY", "VECTARA_API_KEY"]
+    missing_vectara = [var for var in vectara_vars if not os.getenv(var)]
+
+    if missing_vectara:
+        print("⚠️  WARNING: Some Vectara environment variables are not set:")
+        for var in missing_vectara:
+            print(f"  - {var}")
+        print("\nVectara ingestion will be skipped if these are not configured.")
+        print("Add them to your .env file or set them as environment variables.\n")
 
     print("Starting FastAPI server...")
     print("API Documentation: http://localhost:8000/docs")
