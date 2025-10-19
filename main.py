@@ -123,6 +123,14 @@ class RepoResponse(BaseModel):
     vectara_ingestion: Dict[str, Any] = None
 
 
+class VideoStatusResponse(BaseModel):
+    """Response model for video generation status and URLs."""
+    status: str
+    gcs_uri: Optional[str] = None
+    public_url: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 def print_file_info(file_data: Dict[str, Any]) -> None:
     """
     Print structured file information to console.
@@ -415,6 +423,29 @@ async def fetch_repository(request: RepoRequest):
         files=all_files,
         vectara_ingestion=vectara_stats
     )
+
+
+@app.get("/video-status", response_model=VideoStatusResponse)
+async def video_status():
+    """Expose the latest video generation status and URL to the frontend."""
+    status_file = os.getenv("VIDEO_STATUS_FILE", os.path.join(os.getenv("OUT_DIR", "media"), "video_status.json"))
+    try:
+        if os.path.exists(status_file):
+            with open(status_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Basic validation
+            status = data.get("status", "unknown")
+            return VideoStatusResponse(
+                status=status,
+                gcs_uri=data.get("gcs_uri"),
+                public_url=data.get("public_url"),
+                updated_at=data.get("updated_at")
+            )
+        else:
+            return VideoStatusResponse(status="pending")
+    except Exception as e:
+        logger.error(f"❌ Failed reading video status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to read video status")
 
 
 if __name__ == "__main__":
