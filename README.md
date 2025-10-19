@@ -1,98 +1,105 @@
-# BlindVerse Slides + TTS Pipeline
+# BlindVerse – JSON → Slides → TTS → Video
 
-Generate elegant, minimal slides with Imagen 4.0, synthesize narration (Cloud TTS fallback if Gemini TTS not allowlisted), and stitch into an MP4 with an optional Gemini logo overlay.
+Generate elegant slide images from a simple JSON spec, narrate them with TTS, and stitch into an MP4. Works with Google AI Studio (Developer API) for images and Gemini text; uses Google Cloud Text-to-Speech for audio; optional upload to GCS.
 
-## Prerequisites
-- Python 3.10+
-- Google GenAI SDK and optional Google Cloud clients
-- Vertex AI credentials via service account
-
-## Setup
-1) Create `.env` in project root:
+## Quick start
+1) Install
 ```
-VERTEX_AI_PROJECT_ID=your-project-id
-VERTEX_AI_LOCATION=us-central1
-VERTEX_AI_CREDENTIALS_PATH=gemini_key.json
+pip install google-genai python-dotenv pillow moviepy google-cloud-texttospeech google-cloud-storage
 ```
-2) Install dependencies:
+2) Auth
+- Developer API (images/text):
 ```
-pip install google-genai python-dotenv pillow moviepy google-cloud-texttospeech
+export GOOGLE_API_KEY="YOUR_API_KEY"
+export USE_DEVELOPER_API=true
 ```
-(If you see messages about storage or requests during downloads, also: `pip install google-cloud-storage requests`.)
-
-3) Ensure `gemini_key.json` exists and has access to the project and Vertex APIs.
-
-## One-shot Run (auto narration, minimal-box preset)
+- Cloud (TTS + GCS upload):
+```
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
+```
+3) Minimal JSON (project.json)
+```
+{
+  "title": "Your/Repo",
+  "description": "One‑line project summary.",
+  "user_journey": "Short user flow text.",
+  "repository": "https://github.com/you/repo",
+  "tech_stack": "List or paragraph of tech names"
+}
+```
+4) Run end‑to‑end
 ```
 python run.py all \
-  --preset minimal-box \
-  --project_name "AI Safety Protocol" \
-  --tagline "Multi-layer defense for safer AI" \
-  --problem "Prompt injection, jailbreaks, and backdoors" \
-  --architecture "Prompt filtering,Jailbreak defense,Guardrail policies,Audit logging" \
-  --features "LLM-agnostic,Real-time filtering,Policy templates,Audit trail" \
-  --repo "https://github.com/your/repo" \
+  --slides_json project.json \
   --auto_narration \
   --narration_model gemini-2.0-flash-001 \
-  --narration_tone "clear, instructional" \
-  --narration_sentences "2-3" \
-  --narration_max_chars 220 \
   --tts_backend cloud \
-  --logo media/gemini_logo.png \
-  --logo_scale 0.12 \
-  --logo_margin 20 \
-  --out_dir media
+  --out_dir media \
+  --gcs_uri gs://YOUR_BUCKET/slides_with_audio.mp4
 ```
-- Slides are saved to `media/slide_1.png` …
-- Per-slide WAVs to `media/narration_*.wav` (when using per-slide narration)
-- Final MP4 to `media/slides_with_audio.mp4`
+Output: `media/slide_*.png`, `media/narration_*.wav`, `media/slides_with_audio.mp4`
 
-## Per-slide Narration (manual)
-Create `narration_lines.txt` with one block per slide (separate blocks with a blank line or a line `---`). Example:
+## Models and modes
+- Images
+  - Default Imagen: Vertex (`imagen-4.0-generate-001`) or Developer API auto‑resolves `imagen‑3.x`.
+  - Gemini image models supported if set explicitly:
 ```
-Intro line 1. Intro line 2.
----
-Problem line 1. Problem line 2.
----
-Solution blocks, 2-3 sentences.
----
-Features overview.
----
-Call to Action.
+export IMAGE_MODEL="gemini-2.5-flash-image"
 ```
-Then run:
-```
-python run.py all ... --text_file narration_lines.txt --tts_backend cloud --out_dir media
-```
+- Narration
+  - Text model (for auto narration): `--narration_model` (default `gemini-2.0-flash-001`).
+  - TTS backend: `--tts_backend cloud` (Cloud TTS); ensure API is enabled on your project.
 
-## Custom Slides
-- Provide per-slide prompts directly:
-```
-python run.py all \
-  --shared "Elegant minimal styling" \
-  --slide "Title: ..." --slide "Problem: ..." --slide "Solution: ..." \
-  --slide "Features: ..." --slide "CTA: ..." \
-  --text_file narration_lines.txt \
-  --tts_backend cloud \
-  --out_dir media
-```
-- Or from file (one line per slide): `--slides_file slides.txt`
+## JSON → slide prompts (dynamic)
+Slides are generated per slide (separate calls), derived from fields: `title`, `description`, `user_journey`, `tech_stack`, `repository`. Missing fields fallback to generic, concise phrasing. Auto‑narration produces 1–2 natural explanatory sentences per slide.
 
-## Commands
-- Generate only images:
+## Logo overlay and timing
+- Logo overlay on final video:
 ```
-python run.py images --shared "..." --slide "..." --out_dir media
+--logo /abs/path/logo.png --logo_scale 0.12 --logo_margin 20
 ```
-- Generate only TTS:
+- With per‑slide narration, each slide duration equals its audio duration. With a single audio track, use `--seconds` for fixed durations.
+
+## Directory structure (short)
+- `run.py`: Orchestrator CLI (JSON → slides → TTS → MP4; optional GCS upload)
+- `generate_slides_with_tts.py`: Image generation (Imagen or Gemini image models), JSON-to-prompts logic
+- `generate_tts.py`: TTS (Cloud Text-to-Speech; auto-credentials from service account)
+- `compose_slides_with_audio.py`: Video stitching (per-slide audio sync; optional logo overlay)
+- `agent_router.py`: Receives repo analysis, writes `analysis.json`, can auto-run pipeline
+- `agent_visual.py` / `agent_audio.py`: Optional split agents for slides/audio
+- `media/`: Outputs (slide PNGs, narration WAVs, final MP4)
+- `gemini_key.json`: Service account key (ADC)
+
+## Main features
+- JSON-driven slides from 5 fields: title, description, user_journey, tech_stack, repository
+- Flexible image models: Imagen (Vertex/Developer) or Gemini (via `IMAGE_MODEL`)
+- Auto narration: 1–2 natural sentences per slide (Gemini text) → TTS via Cloud TTS
+- Per‑slide sync: each slide waits until its own audio ends
+- Optional GCS upload and logo overlay
+
+## Motivation (accessibility)
+Turn GitHub repositories into accessible, narrated visual summaries. The goal is a concise audio‑visual experience that improves comprehension and caters to blind and low‑vision users through synchronized, clear narration and minimal, high‑contrast slides.
+
+## Agents (optional)
+- `agent_router.py` requests a repo analysis from a remote agent, saves `analysis.json`, then (if enabled) runs the pipeline automatically:
 ```
-python run.py tts --text "Hello" --voice Kore --out narration.wav --out_dir media
+export AUTO_RUN_PIPELINE=true
+python agent_router.py
 ```
+Env used: `OUT_DIR`, `TTS_BACKEND`, `NARRATION_MODEL`, `GCS_URI`.
+
+## Troubleshooting
+- 401/403 (Cloud): set `GOOGLE_APPLICATION_CREDENTIALS`, enable APIs (Text‑to‑Speech, Generative Language/Vertex), grant roles (TTS User, Service Usage Consumer; Storage Object Admin for GCS).
+- 404 model not found (Dev API): set a valid `IMAGE_MODEL` or let auto‑resolve pick an available Imagen 3.x.
+- 429 quota: reduce requests or request a quota increase.
+
+## Useful commands
 - Compose existing slides + audio:
 ```
-python run.py compose --audio media/narration.wav --out media/slides_with_audio.mp4 --seconds 2.5
+python run.py compose --audio media/narration.wav --out media/slides_with_audio.mp4 --seconds 2.5 --out_dir media
 ```
-
-## Notes
-- If Gemini TTS returns allowlist errors, the pipeline falls back to Google Cloud Text-to-Speech. Install `google-cloud-texttospeech` and ensure your service account has permission.
-- Slides remain on screen until their own TTS finishes when per-slide narration is used.
-- Use `--logo`, `--logo_scale`, `--logo_margin` to overlay a logo on the final video.
+- Visual and audio agents (optional):
+```
+python agent_visual.py --out_dir media
+python agent_audio.py --text_file narration_lines.txt --tts_backend cloud --out_dir media
+```
