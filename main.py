@@ -3,6 +3,8 @@
 import os
 import json
 import logging
+import subprocess
+import sys
 from typing import Dict, Any, Optional, List
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -386,6 +388,24 @@ async def fetch_repository(request: RepoRequest):
             "status": "error",
             "error": str(e)
         }
+
+    # Trigger agent only if Vectara upload succeeded (at least one ingested, zero failed)
+    try:
+        vectara_success = (
+            isinstance(vectara_stats, dict)
+            and vectara_stats.get("ingested", 0) > 0
+            and vectara_stats.get("failed", 0) == 0
+        )
+        if vectara_success:
+            logger.info("✅ Vectara ingestion successful. Launching agent_router.py in background…")
+            env = os.environ.copy()
+            env["GITHUB_URL"] = request.repo_url
+            agent_path = os.path.join(os.path.dirname(__file__), "agent_router.py")
+            subprocess.Popen([sys.executable or "python", agent_path], env=env)
+        else:
+            logger.info("ℹ️ Skipping agent launch: Vectara ingestion not fully successful.")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to start agent_router.py: {e}")
 
     # Return response
     return RepoResponse(
