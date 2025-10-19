@@ -36,6 +36,9 @@ CHANNELS = 1
 SAMPLE_RATE = 24000  # Gemini uses 24kHz for audio output
 CHUNK_SIZE = 1024
 
+# Response length configuration
+MAX_RESPONSE_LENGTH = 100  # Maximum number of words in Gemini's response
+
 
 # Choose if you want to use VertexAI or Gemini Developer API
 use_vertexai = False  # Set to True for Vertex AI, False for Gemini Developer API (Google AI Studio API_KEY)
@@ -136,7 +139,7 @@ async def chat_session():
                     retrieved_docs = rag_service.search(user_message, num_results=3)
                     
                     # Build enhanced prompt with context
-                    enhanced_prompt = rag_service.build_context_prompt(user_message, retrieved_docs)
+                    enhanced_prompt = rag_service.build_context_prompt(user_message, retrieved_docs, MAX_RESPONSE_LENGTH)
                     
                     # Store conversation context
                     conversation_history.append({

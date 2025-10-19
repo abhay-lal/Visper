@@ -88,26 +88,28 @@ class VectaraRAGService:
                 })
         return results
     
-    def build_context_prompt(self, query: str, retrieved_docs: List[Dict]) -> str:
+    def build_context_prompt(self, query: str, retrieved_docs: List[Dict], max_length: int = 100) -> str:
         """
         Build a context-rich prompt for Gemini.
         
         Args:
             query: Original user query
             retrieved_docs: Retrieved documents from Vectara
+            max_length: Maximum number of words in the response
             
         Returns:
             Enhanced prompt with context
         """
         if not retrieved_docs:
-            return query
+            return f"{query}\n\nPlease keep your response under {max_length} words and be concise."
         
         context = "Based on the following information:\n\n"
         for i, doc in enumerate(retrieved_docs, 1):
             context += f"Source {i} (Score: {doc['score']:.3f}):\n{doc['text']}\n\n"
         
         context += f"Please answer this question: {query}\n\n"
-        context += "If the information above doesn't contain enough details to answer the question, please say so and provide what you can based on your general knowledge."
+        context += f"IMPORTANT: Keep your response under {max_length} words and be concise. "
+        context += "If the information above doesn't contain enough details to answer the question, please say so briefly and provide what you can based on your general knowledge."
         
         return context
     

@@ -51,6 +51,9 @@ SEND_SAMPLE_RATE = 16000     # Microphone input rate
 RECEIVE_SAMPLE_RATE = 24000  # Gemini output rate
 CHUNK_SIZE = 1024
 
+# Response length configuration
+MAX_RESPONSE_LENGTH = 100  # Maximum number of words in Gemini's response
+
 # Choose if you want to use VertexAI or Gemini Developer API
 use_vertexai = False  # Set to True for Vertex AI, False for Gemini Developer API (Google AI Studio API_KEY)
 PROJECT_ID = 'set-me-up'  # set this value with proper Project ID if you plan to use Vertex AI
@@ -106,6 +109,8 @@ class AudioLoopWithRAG:
         self.rag_service = rag_service
         self.recognizer = recognizer
         self.conversation_history = []  # Store conversation context
+        self.is_gemini_speaking = False  # Track if Gemini is currently speaking
+        self.interruption_buffer = b""   # Buffer for interruption detection
     
     async def transcribe_audio(self, audio_data: bytes) -> str:
         """Convert audio to text for RAG processing."""
@@ -129,7 +134,7 @@ class AudioLoopWithRAG:
         retrieved_docs = self.rag_service.search(user_text, num_results=3)
         
         # Build enhanced prompt with context
-        enhanced_prompt = self.rag_service.build_context_prompt(user_text, retrieved_docs)
+        enhanced_prompt = self.rag_service.build_context_prompt(user_text, retrieved_docs, MAX_RESPONSE_LENGTH)
         
         # Store in conversation history
         self.conversation_history.append({
@@ -146,6 +151,31 @@ class AudioLoopWithRAG:
             print()
         
         return enhanced_prompt
+    
+    async def detect_interruption(self, audio_data: bytes) -> bool:
+        """Detect if user is speaking (interrupting Gemini)."""
+        if not self.is_gemini_speaking:
+            return False
+            
+        # Add to interruption buffer
+        self.interruption_buffer += audio_data
+        
+        # Check audio level for interruption
+        if audio_data:
+            import struct
+            audio_samples = struct.unpack(f'{len(audio_data)//2}h', audio_data)
+            rms = (sum(sample * sample for sample in audio_samples) / len(audio_samples)) ** 0.5
+            audio_level = int(rms)
+            
+            # If audio level is high enough, it's an interruption
+            if audio_level > 200:  # Higher threshold for interruption detection
+                return True
+        
+        # Keep buffer size manageable
+        if len(self.interruption_buffer) > SEND_SAMPLE_RATE * 2:  # 2 seconds max
+            self.interruption_buffer = self.interruption_buffer[-SEND_SAMPLE_RATE:]
+            
+        return False
     
     async def listen_audio(self):
         """Captures audio from microphone and processes with RAG before sending."""
@@ -168,28 +198,85 @@ class AudioLoopWithRAG:
         
         # Buffer for collecting audio chunks
         audio_buffer = b""
-        silence_threshold = 1.0  # seconds of silence before processing
+        silence_threshold = 1.5  # seconds of silence before processing
+        min_audio_length = SEND_SAMPLE_RATE * 2  # minimum 2 seconds of audio
         last_audio_time = 0
+        is_recording = False
         
         while True:
             data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
             audio_buffer += data
             current_time = asyncio.get_event_loop().time()
             
-            # Check if we have enough audio and some silence
-            if len(audio_buffer) > SEND_SAMPLE_RATE * 2 and (current_time - last_audio_time) > silence_threshold:
+            # Check for interruption first
+            is_interruption = await self.detect_interruption(data)
+            if is_interruption:
+                print(f"\n🛑 Interruption detected! Stopping Gemini...")
+                self.is_gemini_speaking = False
+                # Clear any pending audio from Gemini
+                while not self.audio_in_queue.empty():
+                    try:
+                        self.audio_in_queue.get_nowait()
+                    except:
+                        pass
+                # Reset recording state to process the interruption
+                is_recording = True
+                last_audio_time = current_time
+                audio_buffer = self.interruption_buffer  # Use interruption buffer
+                self.interruption_buffer = b""
+                continue
+            
+            # Check if we have audio (proper volume calculation for 16-bit audio)
+            if data:
+                # Convert bytes to 16-bit integers and calculate RMS (Root Mean Square)
+                import struct
+                audio_samples = struct.unpack(f'{len(data)//2}h', data)
+                rms = (sum(sample * sample for sample in audio_samples) / len(audio_samples)) ** 0.5
+                audio_level = int(rms)
+            else:
+                audio_level = 0
+            
+            # Debug: Always show audio level
+            status = "🔊" if self.is_gemini_speaking else "🎤"
+            print(f"{status} Audio level: {audio_level}", end="\r")
+            
+            if audio_level > 100:  # Adjusted threshold for RMS calculation
+                if not is_recording:
+                    print(f"\n🎤 Started recording (level: {audio_level})")
+                is_recording = True
+                last_audio_time = current_time
+            else:
+                # No audio detected - update silence time
+                if is_recording:
+                    silence_time = current_time - last_audio_time
+                    print(f"🎤 Recording... (buffer: {len(audio_buffer)}, silence: {silence_time:.1f}s, min: {min_audio_length})", end="\r")
+            
+            # Process audio if we have enough and there's been silence
+            if (is_recording and 
+                len(audio_buffer) > min_audio_length and 
+                (current_time - last_audio_time) > silence_threshold):
+                
+                print(f"\n🔄 Processing audio (length: {len(audio_buffer)} bytes, duration: {len(audio_buffer)/SEND_SAMPLE_RATE:.1f}s)")
+                
                 # Transcribe the buffered audio
+                print("🎤 Transcribing...")
                 user_text = await self.transcribe_audio(audio_buffer)
                 
-                if user_text:
-                    print(f"You said: {user_text}")
+                if user_text and len(user_text.strip()) > 3:  # Only process if we have meaningful text
+                    print(f"📝 You said: '{user_text}'")
+                    print("🔍 Searching knowledge base...")
                     # Process with RAG
                     enhanced_prompt = await self.process_with_rag(user_text)
+                    print("🤖 Sending to Gemini...")
                     # Send enhanced prompt to Gemini as text
-                    await self.out_queue.put({"data": enhanced_prompt, "mime_type": "text/plain"})
+                    await self.out_queue.put({"text": enhanced_prompt})
+                else:
+                    print(f"❌ Transcription failed or too short: '{user_text}'")
+                    print("💡 Try speaking louder or more clearly")
                 
-                # Reset buffer
+                # Reset buffer and recording state
                 audio_buffer = b""
+                is_recording = False
                 last_audio_time = current_time
     
     async def receive_audio(self):
@@ -197,6 +284,9 @@ class AudioLoopWithRAG:
         while True:
             # Get next response from Gemini
             turn = self.session.receive()
+            
+            # Mark that Gemini is starting to speak
+            self.is_gemini_speaking = True
             
             async for response in turn:
                 # Handle audio data
@@ -207,6 +297,8 @@ class AudioLoopWithRAG:
                 if text := response.text:
                     print("Gemini:", text, end="")
             
+            # Mark that Gemini has finished speaking
+            self.is_gemini_speaking = False
             print()  # New line after Gemini's turn completes
     
     async def play_audio(self):
@@ -226,10 +318,15 @@ class AudioLoopWithRAG:
             await asyncio.to_thread(stream.write, bytestream)
     
     async def send_realtime(self):
-        """Sends microphone audio to Gemini API."""
+        """Sends microphone audio or text to Gemini API."""
         while True:
             msg = await self.out_queue.get()
-            await self.session.send(input=msg)
+            if "text" in msg:
+                # Send as text input
+                await self.session.send(input=msg["text"], end_of_turn=True)
+            else:
+                # Send as audio input
+                await self.session.send(input=msg)
     
     async def run(self):
         """Coordinates all audio streaming tasks."""
@@ -249,6 +346,8 @@ class AudioLoopWithRAG:
                 else:
                     print("Voice chat started (RAG disabled - check Vectara credentials). Speak into your microphone. Press Ctrl+C to quit.")
                 print("Note: Using headphones is recommended to prevent feedback.")
+                print("🎤 Testing microphone... Speak now to see audio levels!")
+                print("🔍 If you don't see changing audio levels, check microphone permissions!")
                 
                 # Start all tasks
                 tg.create_task(self.send_realtime())
