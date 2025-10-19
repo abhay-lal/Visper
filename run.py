@@ -5,6 +5,27 @@ import importlib
 import re
 
 
+def _upload_to_gcs(gcs_uri: str, local_path: str) -> str:
+    if not gcs_uri.startswith("gs://"):
+        raise ValueError("gcs_uri must start with gs://")
+    try:
+        from google.cloud import storage  # type: ignore
+    except Exception:
+        raise RuntimeError(
+            "Missing dependency google-cloud-storage. Install with: pip install google-cloud-storage"
+        )
+
+    path = gcs_uri[len("gs://"):]
+    if "/" not in path:
+        raise ValueError("gcs_uri must be of form gs://bucket/obj")
+    bucket_name, blob_name = path.split("/", 1)
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_filename(local_path)
+    return gcs_uri
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="BlindVerse pipeline runner")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -31,6 +52,7 @@ def main() -> None:
     p_comp.add_argument("--out", default=os.getenv("COMPOSE_OUT", "slides_with_audio.mp4"))
     p_comp.add_argument("--seconds", type=float, default=float(os.getenv("SECONDS_PER_IMAGE", "2.0")))
     p_comp.add_argument("--out_dir", default=os.getenv("OUT_DIR", "media"), help="Directory to write output video")
+    p_comp.add_argument("--gcs_uri", default=os.getenv("GCS_URI"), help="Upload final MP4 to this GCS URI (gs://bucket/path.mp4)")
 
     # all
     p_all = sub.add_parser("all", help="Run full pipeline: images -> TTS -> compose")
@@ -45,6 +67,7 @@ def main() -> None:
     p_all.add_argument("--video_out", default=os.getenv("COMPOSE_OUT", "slides_with_audio.mp4"))
     p_all.add_argument("--seconds", type=float, default=float(os.getenv("SECONDS_PER_IMAGE", "2.0")))
     p_all.add_argument("--out_dir", default=os.getenv("OUT_DIR", "media"), help="Directory to write narration and video outputs")
+    p_all.add_argument("--gcs_uri", default=os.getenv("GCS_URI"), help="Upload final MP4 to this GCS URI (gs://bucket/path.mp4)")
     # auto narration generation via Gemini text model
     p_all.add_argument("--auto_narration", action="store_true", help="Generate narration per slide via Gemini text model")
     p_all.add_argument("--narration_model", default=os.getenv("NARRATION_MODEL", "gemini-2.0-flash-001"))
@@ -92,11 +115,18 @@ def main() -> None:
 
     elif args.cmd == "compose":
         mod = importlib.import_module("compose_slides_with_audio")
-        images = [p for p in sorted(os.listdir(".")) if p.lower().endswith((".png", ".jpg", ".jpeg")) and (p.startswith("slide_") or p.startswith("generated_image_"))]
+        search_dir = args.out_dir if os.path.isdir(args.out_dir) else "."
+        images = [os.path.join(search_dir, p) for p in sorted(os.listdir(search_dir)) if p.lower().endswith((".png", ".jpg", ".jpeg")) and (p.startswith("slide_") or p.startswith("generated_image_"))]
         os.makedirs(args.out_dir, exist_ok=True)
         out_path = args.out if os.path.dirname(args.out) else os.path.join(args.out_dir, args.out)
         result = mod.compose(images, args.audio, out_path, seconds_per_image=args.seconds)
         print(f"Wrote {result}")
+        if args.gcs_uri:
+            try:
+                uri = _upload_to_gcs(args.gcs_uri, result)
+                print(f"Uploaded to {uri}")
+            except Exception as e:
+                print(f"GCS upload failed: {e}")
 
     elif args.cmd == "all":
         # 1) images (per-slide prompts from preset/file/flags)
@@ -201,6 +231,12 @@ def main() -> None:
             video_out_path = args.video_out if os.path.dirname(args.video_out) else os.path.join(args.out_dir, args.video_out)
             video = comp_mod.compose(slides, wav, video_out_path, seconds_per_image=args.seconds, logo_path=args.logo, logo_scale=args.logo_scale, logo_margin=args.logo_margin)
         print(f"Wrote {video}")
+        if args.gcs_uri:
+            try:
+                uri = _upload_to_gcs(args.gcs_uri, video)
+                print(f"Uploaded to {uri}")
+            except Exception as e:
+                print(f"GCS upload failed: {e}")
 
 
 if __name__ == "__main__":
