@@ -1,4 +1,11 @@
-/gemini_key.json
+*.gitignore
 .env
-__pycache__
-media
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.log
+.DS_Store
