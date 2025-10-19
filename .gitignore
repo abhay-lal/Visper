@@ -1,4 +1,4 @@
 /gemini_key.json
 .env
-/__pycache__
-/media
+__pycache__
+media
