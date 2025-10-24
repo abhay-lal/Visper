@@ -162,3 +162,18 @@ python agent_audio.py --text_file narration_lines.txt --tts_backend cloud --out_
 - gemini-2.5-flash-preview-tts (optional)
   - Purpose: TTS directly via Gemini when `--tts_backend gemini` is used (may require allowlisting); default pipeline uses Google Cloud Text‑to‑Speech instead.
   - Where: `generate_tts.py` (backend selectable via `--tts_backend`).
+
+---
+
+## Built for
+Google Gemini Hackathon — TED AI
+
+Links:
+- [2025 TED AI Hackathon (Cerebral Valley)](https://cerebralvalley.ai/e/2025-ted-ai-hackathon)
+- [TEDAI San Francisco Hackathon](https://tedai-sanfrancisco.ted.com/hackathon/)
+
+## Team
+- Abhay Lal
+- Yash Vishe
+- Kshitij Akash Dumbre
+- Guruprasad Parasnis
