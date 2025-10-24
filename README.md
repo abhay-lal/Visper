@@ -126,42 +126,23 @@ Visper exists to make engineering knowledge accessible to everyone, especially b
 - Video: Slides + audio are stitched; each slide duration matches its audio.
 - Optional: Upload final MP4 to GCS; overlay logo.
 
-## Agents (optional)
-- `agent_router.py` requests a repo analysis from a remote agent, saves `analysis.json`, then (if enabled) runs the pipeline automatically:
-```
-export AUTO_RUN_PIPELINE=true
-python agent_router.py
-```
-Env used: `OUT_DIR`, `TTS_BACKEND`, `NARRATION_MODEL`, `GCS_URI`.
-
-## Troubleshooting
-- 401/403 (Cloud): set `GOOGLE_APPLICATION_CREDENTIALS`, enable APIs (Text‑to‑Speech, Generative Language/Vertex), grant roles (TTS User, Service Usage Consumer; Storage Object Admin for GCS).
-- 404 model not found (Dev API): set a valid `IMAGE_MODEL` or let auto‑resolve pick an available Imagen 3.x.
-- 429 quota: reduce requests or request a quota increase.
-
-## Useful commands
-- Compose existing slides + audio:
-```
-python run.py compose --audio media/narration.wav --out media/slides_with_audio.mp4 --seconds 2.5 --out_dir media
-```
-- Visual and audio agents (optional):
-```
-python agent_visual.py --out_dir media
-python agent_audio.py --text_file narration_lines.txt --tts_backend cloud --out_dir media
-```
 
 ## Gemini models used and purpose
 - gemini-2.0-flash-001
   - Purpose: Auto‑narration text generation (1–2 sentences per slide) when using `--auto_narration` or `--slides_json`.
   - Where: `run.py` (`--narration_model` flag; defaults to this model).
 
-- gemini-2.5-flash-image (optional)
+- gemini-2.5-flash-image 
   - Purpose: Image generation via `generate_content` with inline image parts when you explicitly set `IMAGE_MODEL=gemini-2.5-flash-image`.
   - Where: `generate_slides_with_tts.py` auto‑detects Gemini image models and switches to the Gemini content path.
 
-- gemini-2.5-flash-preview-tts (optional)
+- gemini-2.5-flash-preview-tts 
   - Purpose: TTS directly via Gemini when `--tts_backend gemini` is used (may require allowlisting); default pipeline uses Google Cloud Text‑to‑Speech instead.
   - Where: `generate_tts.py` (backend selectable via `--tts_backend`).
+
+- Gemini Live API 
+  - Purpose: Low‑latency, streaming voice interactions for real‑time conversations (barge‑in, partial results) in Voice RAG Chat.
+  - Where: Live session via google‑genai Live API (WebSocket/stream). Integrates with the FastAPI service for voice chat mode.
 
 ---
 
