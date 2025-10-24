@@ -10,3 +10,7 @@ venv/
 *.log
 .DS_Store
 gemini_key.json
+media/
+/analysis.json
+*.log
+*.pid

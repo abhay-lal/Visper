@@ -1,11 +1,25 @@
-# Visper – JSON → Slides → TTS → Video
+## Visper
 
-Generate elegant slide images from a simple JSON spec, narrate them with TTS, and stitch into an MP4. Works with Google AI Studio (Developer API) for images and Gemini text; uses Google Cloud Text-to-Speech for audio; optional upload to GCS.
+Talk to your code. Real‑time voice chat with secure RAG over your repositories.
+
+<p align="center">
+  <img alt="Voice RAG Chat – listening UI" src="docs/assets/landing-voice-rag.jpeg" width="900" />
+</p>
+
+<p align="center">
+  <img alt="Visper – homepage" src="docs/assets/landing-home.jpeg" width="900" />
+</p>
+
+## Demo
+
+[Watch the 2‑minute demo on YouTube](https://www.youtube.com/watch?v=FfQeqGB4Csw)
+
+[![Watch the demo](https://img.youtube.com/vi/FfQeqGB4Csw/maxresdefault.jpg)](https://www.youtube.com/watch?v=FfQeqGB4Csw)
 
 ## Quick start
 1) Install
 ```
-pip install google-genai python-dotenv pillow moviepy google-cloud-texttospeech google-cloud-storage uagents vectara
+pip install -r requirements.txt
 ```
 2) Auth
 - Developer API (images/text):
@@ -39,6 +53,13 @@ python run.py all \
 ```
 Output: `media/slide_*.png`, `media/narration_*.wav`, `media/slides_with_audio.mp4`
 
+5) Run the API
+```
+python main.py
+# or: uvicorn visper.api.app:app --reload --port 8000
+```
+Docs: `http://localhost:8000/docs`
+
 ## Models and modes
 - Images
   - Default Imagen: Vertex (`imagen-4.0-generate-001`) or Developer API auto‑resolves `imagen‑3.x`.
@@ -50,7 +71,7 @@ export IMAGE_MODEL="gemini-2.5-flash-image"
   - Text model (for auto narration): `--narration_model` (default `gemini-2.0-flash-001`).
   - TTS backend: `--tts_backend cloud` (Cloud TTS); ensure API is enabled on your project.
 
-## JSON → slide prompts (dynamic)
+## JSON to slide prompts (dynamic)
 Slides are generated per slide (separate calls), derived from fields: `title`, `description`, `user_journey`, `tech_stack`, `repository`. Missing fields fallback to generic, concise phrasing. Auto‑narration produces 1–2 natural explanatory sentences per slide.
 
 ## Logo overlay and timing
@@ -61,14 +82,23 @@ Slides are generated per slide (separate calls), derived from fields: `title`, `
 - With per‑slide narration, each slide duration equals its audio duration. With a single audio track, use `--seconds` for fixed durations.
 
 ## Directory structure (short)
-- `run.py`: Orchestrator CLI (JSON → slides → TTS → MP4; optional GCS upload)
-- `generate_slides_with_tts.py`: Image generation (Imagen or Gemini image models), JSON-to-prompts logic
-- `generate_tts.py`: TTS (Cloud Text-to-Speech; auto-credentials from service account)
-- `compose_slides_with_audio.py`: Video stitching (per-slide audio sync; optional logo overlay)
+- `visper/`: Python package
+  - `api/app.py`: FastAPI app (`from visper.api.app import app`)
+  - `pipeline/`: generation pipeline wrappers
+    - `images.py`: `init_client`, `generate_images`, `generate_images_for_slides`
+    - `tts.py`: `generate_tts`
+    - `compose.py`: `compose`, `compose_per_slide`
+  - `clients/`: external service clients
+    - `github_client.py`: GitHub API client
+    - `vectara_client.py`: Vectara client
+  - `services/`: higher-level helpers
+    - `gemini_enhancer.py`: RAG answer enhancer
+  - `utils/github.py`: `parse_github_url`
+- `run.py`: Orchestrator CLI (uses `visper.pipeline.*`)
+- `main.py`: API entrypoint (re-exports `visper.api.app:app`)
 - `agent_router.py`: Receives repo analysis, writes `analysis.json`, can auto-run pipeline
 - `agent_visual.py` / `agent_audio.py`: Optional split agents for slides/audio
 - `media/`: Outputs (slide PNGs, narration WAVs, final MP4)
-- `gemini_key.json`: Service account key (ADC)
 
 ## Main features
 - JSON-driven slides from 5 fields: title, description, user_journey, tech_stack, repository
@@ -79,10 +109,15 @@ Slides are generated per slide (separate calls), derived from fields: `title`, `
  - RAG (optional): Vectara can provide retrieved context to enrich slide prompts
  - Agents (optional): Fetch.ai uAgents enable remote repo analysis and pipeline triggering
 
-## Motivation (accessibility)
-Turn GitHub repositories into accessible, narrated visual summaries. The goal is a concise audio‑visual experience that improves comprehension and caters to blind and low‑vision users through synchronized, clear narration and minimal, high‑contrast slides.
+## Motivation & Accessibility
+Visper exists to make engineering knowledge accessible to everyone, especially blind and low‑vision developers.
 
-## How it works (JSON → Slides → Audio → Video)
+- Audio‑first: Every visual is paired with clear, synchronized narration.
+- Minimal visuals: High‑contrast, low‑clutter slides for screen magnifiers.
+- Hands‑free: Voice in/voice out to explore large codebases quickly.
+- Grounded: Answers cite sources and link back to files.
+
+## How it works
 - Input: 5 JSON fields (`title`, `description`, `user_journey`, `tech_stack`, `repository`).
 - Prompting: Builds structured, minimal slide prompts per field.
 - Image generation: Imagen (default) or Gemini image model renders slides.

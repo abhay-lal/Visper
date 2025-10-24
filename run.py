@@ -94,13 +94,14 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.cmd == "images":
-        # If per-slide prompts provided, use generate_slides_with_tts.generate_images_for_slides
+        # Import unified images module once
+        mod = importlib.import_module("visper.pipeline.images")
+        # If per-slide prompts provided, use generate_images_for_slides
         if args.slide or args.slides_file:
             slide_prompts = args.slide or []
             if args.slides_file:
                 with open(args.slides_file, "r", encoding="utf-8") as f:
                     slide_prompts.extend([line.strip() for line in f if line.strip()])
-            mod = importlib.import_module("generate_slides_with_tts")
             paths = mod.generate_images_for_slides(args.shared or "", slide_prompts, out_dir=os.getenv("OUT_DIR", "media"), image_model=args.image_model, use_developer=args.use_developer_api)
         else:
             paths = mod.generate_images(args.prompt, args.count, out_dir=os.getenv("OUT_DIR", "media"), image_model=args.image_model, use_developer=args.use_developer_api)
@@ -110,14 +111,14 @@ def main() -> None:
                 print(p)
 
     elif args.cmd == "tts":
-        mod = importlib.import_module("generate_tts")
+        mod = importlib.import_module("visper.pipeline.tts")
         os.makedirs(args.out_dir, exist_ok=True)
         out_path = args.out if os.path.dirname(args.out) else os.path.join(args.out_dir, args.out)
         out = mod.generate_tts(text=args.text, voice_name=args.voice, outfile=out_path, backend=args.tts_backend)
         print(f"Saved TTS to {out}")
 
     elif args.cmd == "compose":
-        mod = importlib.import_module("compose_slides_with_audio")
+        mod = importlib.import_module("visper.pipeline.compose")
         search_dir = args.out_dir if os.path.isdir(args.out_dir) else "."
         images = [os.path.join(search_dir, p) for p in sorted(os.listdir(search_dir)) if p.lower().endswith((".png", ".jpg", ".jpeg")) and (p.startswith("slide_") or p.startswith("generated_image_"))]
         os.makedirs(args.out_dir, exist_ok=True)
@@ -133,7 +134,7 @@ def main() -> None:
 
     elif args.cmd == "all":
         # 1) images (per-slide prompts from preset/file/flags)
-        img_mod = importlib.import_module("generate_slides_with_tts")
+        img_mod = importlib.import_module("visper.pipeline.images")
         used_slide_prompts = None
         if args.preset == "minimal-box":
             # Deprecated static preset path retained for compatibility; prefer --slides_json
@@ -282,7 +283,7 @@ def main() -> None:
             slides = img_mod.generate_images(prompt, count, out_dir=args.out_dir, image_model=os.getenv("IMAGE_MODEL"), use_developer=os.getenv("USE_DEVELOPER_API", "").lower() in {"1","true","yes"})
         # 2) tts (single or per-slide)
         os.makedirs(args.out_dir, exist_ok=True)
-        tts_mod = importlib.import_module("generate_tts")
+        tts_mod = importlib.import_module("visper.pipeline.tts")
         per_slide_texts = None
         if args.text_file and os.path.exists(args.text_file):
             with open(args.text_file, "r", encoding="utf-8") as f:
@@ -299,7 +300,7 @@ def main() -> None:
         if per_slide_texts is None and (args.auto_narration or args.slides_json) and used_slide_prompts:
             try:
                 # Reuse Vertex-initialized client
-                narr_mod = importlib.import_module("generate_slides_with_tts")
+                narr_mod = importlib.import_module("visper.pipeline.images")
                 client = narr_mod.init_client()
                 n = len(slides)
                 target_sentences = "1-2" if args.slides_json else args.narration_sentences
@@ -343,7 +344,7 @@ def main() -> None:
                 tts_mod.generate_tts(text=txt, voice_name=args.voice, outfile=wav_path, backend=args.tts_backend)
                 wavs.append(wav_path)
             # 3) compose per slide
-            comp_mod = importlib.import_module("compose_slides_with_audio")
+            comp_mod = importlib.import_module("visper.pipeline.compose")
             video_out_path = args.video_out if os.path.dirname(args.video_out) else os.path.join(args.out_dir, args.video_out)
             video = comp_mod.compose_per_slide(slides, wavs, video_out_path, logo_path=args.logo, logo_scale=args.logo_scale, logo_margin=args.logo_margin)
         else:
@@ -354,7 +355,7 @@ def main() -> None:
             wav_out_path = args.tts_out if os.path.dirname(args.tts_out) else os.path.join(args.out_dir, args.tts_out)
             wav = tts_mod.generate_tts(text=narration_text, voice_name=args.voice, outfile=wav_out_path, backend=args.tts_backend)
             # 3) compose single track
-            comp_mod = importlib.import_module("compose_slides_with_audio")
+            comp_mod = importlib.import_module("visper.pipeline.compose")
             video_out_path = args.video_out if os.path.dirname(args.video_out) else os.path.join(args.out_dir, args.video_out)
             video = comp_mod.compose(slides, wav, video_out_path, seconds_per_image=args.seconds, logo_path=args.logo, logo_scale=args.logo_scale, logo_margin=args.logo_margin)
         print(f"Wrote {video}")
