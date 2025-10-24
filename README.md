@@ -177,28 +177,28 @@ Links:
   <tr>
     <td align="center">
       <a href="https://www.linkedin.com/in/lal-abhay/">
-        <img src="https://unavatar.io/https://www.linkedin.com/in/lal-abhay/" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Abhay Lal" />
+        <img src="docs/assets/abhay.jpeg" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Abhay Lal" />
         <br />
         <sub><b>Abhay Lal</b></sub>
       </a>
     </td>
     <td align="center">
       <a href="https://www.linkedin.com/in/yash-vishe-903862190/">
-        <img src="https://unavatar.io/https://www.linkedin.com/in/yash-vishe-903862190/" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Yash Vishe" />
+        <img src="docs/assets/yash.jpeg" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Yash Vishe" />
         <br />
         <sub><b>Yash Vishe</b></sub>
       </a>
     </td>
     <td align="center">
       <a href="https://www.linkedin.com/in/kshitij-dumbre-1b6870175/">
-        <img src="https://unavatar.io/https://www.linkedin.com/in/kshitij-dumbre-1b6870175/" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Kshitij Akash Dumbre" />
+        <img src="docs/assets/kshitij.jpeg" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Kshitij Akash Dumbre" />
         <br />
         <sub><b>Kshitij Akash Dumbre</b></sub>
       </a>
     </td>
     <td align="center">
       <a href="https://www.linkedin.com/in/guruprasad-parasnis-592479213/">
-        <img src="https://unavatar.io/https://www.linkedin.com/in/guruprasad-parasnis-592479213/" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Guruprasad Parasnis" />
+        <img src="docs/assets/guru.jpeg" width="100" height="100" style="border-radius:50%;object-fit:cover;" alt="Guruprasad Parasnis" />
         <br />
         <sub><b>Guruprasad Parasnis</b></sub>
       </a>
