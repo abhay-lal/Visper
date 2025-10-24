@@ -10,12 +10,7 @@ Talk to your code. Real‑time voice chat with secure RAG over your repositories
   <img alt="Visper – homepage" src="docs/assets/landing-home.jpeg" width="900" />
 </p>
 
-## Demo
-
-[Watch the 2‑minute demo on YouTube](https://www.youtube.com/watch?v=FfQeqGB4Csw)
-
-[![Watch the demo](https://img.youtube.com/vi/FfQeqGB4Csw/maxresdefault.jpg)](https://www.youtube.com/watch?v=FfQeqGB4Csw)
-
+ 
 ## Quick start
 1) Install
 ```
@@ -116,6 +111,11 @@ Visper exists to make engineering knowledge accessible to everyone, especially b
 - Minimal visuals: High‑contrast, low‑clutter slides for screen magnifiers.
 - Hands‑free: Voice in/voice out to explore large codebases quickly.
 - Grounded: Answers cite sources and link back to files.
+
+## Demo
+[Watch the 2‑minute demo on YouTube](https://www.youtube.com/watch?v=ToMe0I_unKM)
+
+[![Watch the demo](https://img.youtube.com/vi/ToMe0I_unKM/maxresdefault.jpg)](https://www.youtube.com/watch?v=ToMe0I_unKM)
 
 ## How it works
 - Input: 5 JSON fields (`title`, `description`, `user_journey`, `tech_stack`, `repository`).
